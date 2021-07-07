@@ -1,0 +1,111 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use feature qw( say );
+use List::MoreUtils qw( uniq);
+use Config::General;
+
+my $conf = Config::General->new(
+	    -ConfigFile => 'options.cfg',
+            -InterPolateVars => 1
+	);
+
+my %config = $conf->getall;
+
+# scan the edi trace log for records generated from EDI quotes
+# that lack a matching bib
+# extract the search key and biblio number so that search keys can be submitted
+# to BDS
+
+my $home    = $config{'home'};
+my $logfile = $config{'logdir'} . $config{'editracefile'};
+my $bds_dir = $config{'bds_dir'};;
+my $date;
+
+if (@ARGV) {
+    $date = shift;
+    if ( $date !~ m/^\d{4}\/\d{2}\/\d{2}/ ) {
+        say 'Invalid date passed : use format YYYY/MM/DD';
+        exit 1;
+    }
+}
+
+if ( !$date ) {
+    my @t = localtime();
+    $date = sprintf '%4d/%02d/%02d', $t[5] + 1900, $t[4] + 1, $t[3];
+}
+
+my $normalized_date = $date;
+$normalized_date =~ s#/##g;
+my @raw_keys;
+open my $fh, '<', $logfile || die "unable to read_logfile : $!";
+
+my ( $key, $bib );
+while (<$fh>) {
+    chomp;
+    if (/^$date/) { # eg 2021/06/22
+        my $line = substr $_, 20;
+        if ( $line =~ m/^Checking db for matches with ([\dXx]+)/ ) {
+            $key = $1;
+            undef $bib;
+        }
+        elsif ( $line =~ m/^New biblio added (\d+)/ ) {
+            $bib = $1;
+            push @raw_keys, "$key|$bib";
+        }
+        elsif ( $line =~ m/^Match found/ ) {
+            undef $key;
+        }
+        elsif ( $line =~ m/^Updating bib:(\d+) id:([\dXx]+)/ )
+        {    # invoice updated title
+            push @raw_keys, "$2|$1";
+        }
+    }
+}
+close $fh;
+
+@raw_keys = uniq @raw_keys;    # dont submit duplicates
+
+if (@raw_keys) {
+    my @isbns;
+    my @eans;
+    open my $keys, '>',
+      "${bds_dir}keys/${normalized_date}_keys"
+       or die "Could not open keys_file ${bds_dir}keys/${normalized_date}_keys : $!";
+
+    foreach my $k (@raw_keys) {
+        say {$keys} $k;
+
+        my ( $skey, undef ) = split /[|]/, $k;
+        if ( $skey =~ m/^97[89]/ || length($skey) == 10 ) {
+            push @isbns, $skey;
+        }
+        else {
+            push @eans, $skey;
+        }
+    }
+    close $keys;
+
+    my $file_date = substr $normalized_date, 4;    # monthday only
+    if (@isbns) {
+        my $filename = "$config{custcodeprefix}${normalized_date}1.TXT";
+        create_input_file( "${bds_dir}isbns/$filename", \@isbns );
+    }
+    if (@eans) {
+        my $filename = "$config{custcodeprefix}T${normalized_date}1.TXT";
+        create_input_file( "${bds_dir}eans/$filename", \@eans );
+    }
+
+}
+
+sub create_input_file {
+    my ( $filename, $keys ) = @_;
+
+    open my $fh, '>', $filename or die "Cannot open $filename: $!";
+    foreach my $k ( @{$keys} ) {
+        say $fh $k;
+    }
+    close $fh;
+    return;
+}
+

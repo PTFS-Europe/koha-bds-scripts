@@ -1,0 +1,109 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+
+use Net::FTP;
+use File::Copy;
+use List::Util qw( none );
+use Config::General;
+
+my $conf = Config::General->new(
+            -ConfigFile => 'options.cfg',
+            -InterPolateVars => 1
+        );
+
+my %config = $conf->getall;
+
+
+my $function = shift;
+
+
+if ( $function eq 'send' ) {
+    submit_files('isbns');
+    submit_files('eans');
+}
+elsif ( $function eq 'receive' ) {
+    retrieve_files('isbns');
+    retrieve_files('eans');
+}
+else {
+    die "Unrecognized function : $function";
+}
+
+sub submit_files {
+    my $type      = shift;
+    my $directory = "$config{bds_dir}$type";
+    my $ftpaddr="";
+    if ( !chdir $directory ) {
+        die "could not cd to $directory";
+    }
+    opendir my $dh, $directory or die "Cannot opendir $directory: $!";
+    my @submit_files = grep { /^$config{custcodeprefix}T?\d{9}\.TXT$/ } readdir($dh);
+    closedir $dh;
+
+    if (@submit_files) {
+        if($type eq "isbns") {
+             $ftpaddr=$config{ftpaddress};
+        }
+        else {
+             $ftpaddr=$config{ftpeanaddress};
+        } 
+          my $ftp = Net::FTP->new( $ftpaddr, Debug => 0 )
+          or die "Cannot connect to  $ftpaddr: $@";
+        
+        $ftp->login( $config{login}, $config{pass} )
+          or die "Cannot login: ", $ftp->message;
+        if($type eq "isbns") {
+           $ftp->cwd( $config{upload_isn} )
+             or die "Cannot change working directory ", $ftp->message;
+        } else {
+           $ftp->cwd( $config{upload_ean} )
+             or die "Cannot change working directory ", $ftp->message;
+        }
+        foreach my $filename (@submit_files) {
+            $ftp->put($filename);
+            move( "$directory/$filename", "$directory/submitted/$filename" );
+        }
+        $ftp->quit;
+
+    }
+    return;
+}
+
+sub retrieve_files {
+    my $type      = shift;
+    my $directory = "$config{bds_dir}$type";
+    if ( !chdir $directory ) {
+        die "could not cd to $directory";
+    }
+    opendir my $dh,
+      "$directory/received" || die "Cannot opendir $directory: $!";
+    my @already_received = grep { /^$config{'custcodeprefix'}?\d{9}\.mrc$/ } readdir($dh);
+    closedir $dh;
+
+    #my $f = $ftp_details->{$type};
+    my $ftp = Net::FTP->new( $config{ftpaddress}, Debug => 0 )
+      or die "Cannot connect to  $config{ftpaddress}: $@";
+    $ftp->login( $config{login}, $config{pass} )
+      or die "Cannot login: ", $ftp->message;
+    if($type eq "isbns") {
+       $ftp->cwd( $config{download_isn} )
+         or die "Cannot change working directory ", $ftp->message;
+    } else {
+       $ftp->cwd( $config{download_ean} )
+         or die "Cannot change working directory ", $ftp->message;
+    }	    
+    my @files_on_server = $ftp->ls;
+    my @download_files = grep { /$config{custcodeprefix}t?\d{9}.mrc$/ } @files_on_server;
+    foreach my $filename (@download_files) {
+
+        if ( none { /$filename/ } @already_received ) {
+            $ftp->get($filename);
+        }
+    }
+    $ftp->quit;
+
+    return;
+
+}
+

@@ -1,0 +1,165 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+
+use Business::ISBN;
+use MARC::Record;
+use MARC::File::USMARC;
+use C4::Context;
+use C4::Biblio qw( ModBiblio );
+use File::Copy;
+use feature qw( say );
+my $bds_dir = '/home/koha/custom_scripts/BDS/';
+
+my $keys = get_keys($bds_dir);
+my $dbh  = C4::Context->dbh;
+
+my @marcfiles = get_marcfiles($bds_dir);
+say localtime(); 
+#my $marcfilename  = 'ch201701301.mrc';
+foreach my $marcfilename (@marcfiles) {
+    say "processing $marcfilename";
+
+    my $marcfile = MARC::File::USMARC->in($marcfilename);
+
+    while ( my $m = $marcfile->next() ) {
+        my $control;
+        my $control_number;
+        if ( $marcfilename =~ m/ean/ ) {
+            $control        = $m->field('024');
+            $control_number = $control->subfield('a');
+        }
+        else {
+            $control        = $m->field('001');
+            $control_number = $control->data();
+        }
+        print "Rec:$control_number ";
+        if ( exists $keys->{$control_number} ) {
+            say "matches biblio $keys->{$control_number}";
+            update_biblio( $keys->{$control_number}, $m );
+        }
+        else {
+            say "NO MATCH";
+        }
+    }
+
+    $marcfile->close();
+    my $received_filename = $marcfilename;
+    if ( $received_filename =~ s#(isbn|ean)s#$1s/received# ) {
+        move( $marcfilename, $received_filename );
+    }
+
+}
+
+sub update_biblio {
+    my ( $biblionumber, $m ) = @_;
+    my $recid = shift;
+
+ #    my $marcblob      = shift;
+ #    my $marcblob      = ( $dbh->selectrow_array( $readmarc, {}, $recid ) )[0];
+    my $leader = $m->leader();
+    my $frameworkcode = get_framework( substr( $leader, 6, 2 ) );
+
+    #    logmessage("Biblio:$biblionumber updated from importrec:$recid");
+
+    if (ModBiblio( $m, $biblionumber, $frameworkcode )) {
+        say "ModBiblio for bib $biblionumber returns 1";
+    }
+    else {
+        say "ModBiblio for bib $biblionumber returns ERROR";
+    }
+    
+
+    #    $mark_matched->execute($biblionumber);
+    #    ++$bibs_updated;
+
+    return;
+}
+
+sub get_framework {
+    my $str = shift;
+
+    # ACQ           | Acquisitions   |
+    #| AR            | Models         |
+    #| BKS           | Books          |
+    #| CF            | Software       |
+    #| FA            | Fast Add       |
+    #| IR            | Binders        |
+    #| KT            | Kits           |
+    #| MAP           | Maps           |
+    #| PLY           | Plays          |
+    #| PRM           | Printed Music  |
+    #| SER           | Serials        |
+    #| SR            | Recorded music |
+    #| SW            | Spoken Word    |
+    #| VR            | DVDs           |
+    if ( $str eq 'as' ) {
+        return 'SER';
+    }
+    if ( $str =~ m/^m/ ) {
+        return 'CF';
+    }
+    elsif ( $str =~ m/^o/ ) {
+        return 'KT';
+    }
+    elsif ( $str =~ m/^e/ ) {
+        return 'MAP';
+    }
+    elsif ( $str =~ m/^d/ ) {
+        return 'PRM';
+    }
+    elsif ( $str =~ m/^j/ ) {
+        return 'SR';
+    }
+    elsif ( $str =~ m/^i/ ) {
+        return 'SW';
+    }
+    elsif ( $str =~ m/^g/ ) {
+        return 'VR';
+    }
+
+    return 'BKS';
+}
+
+sub get_keys {
+
+    #my $filename = '20170130_keys';
+    my $directory = shift;
+    $directory .= 'keys';
+    my $k = {};
+    opendir my $dh, $directory || die "Cannot open $directory: $!";
+    while ( readdir $dh ) {
+        if (/^\d{8}_keys/) {
+            my $filename     = "$directory/$_";
+            my $new_filename = "$directory/submitted/$_";
+            open my $fh, '<', $filename or die "Could not open $filename : $!";
+            while (<$fh>) {
+                chomp;
+                my ( $key, $biblio ) = split /\|/, $_;
+                $k->{$key} = $biblio;
+            }
+            close $fh;
+            move( $filename, $new_filename );
+        }
+    }
+
+    return $k;
+}
+
+sub get_marcfiles {
+    my $bds_dir = shift;
+    my @files;
+
+    for my $subdir (qw(isbns eans)) {
+        my $directory = "${bds_dir}$subdir";
+        opendir my $dh, $directory || die "Cannot open $directory: $!";
+        while ( readdir $dh ) {
+            if (/^cht?\d{9}\.mrc$/) {
+                push @files, "$bds_dir$subdir/$_";
+            }
+        }
+        closedir $dh;
+    }
+    return @files;
+}
+

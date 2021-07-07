@@ -1,0 +1,10 @@
+#!/bin/bash
+source options.sh
+#cd /home/koha/custom_scripts
+./update_from_bds.pl 2>&1 >/home/koha/koha-dev/var/log/log_bds_update
+./update_isbns13to10 2>&1  >/home/koha/koha-dev/var/log/log_isbn10
+./update_isbns10to13 2>&1  >/home/koha/koha-dev/var/log/log_isbn13
+
+# rebuild ean map to resevoir records
+./update_eans
+./update_from_bds_ean.pl 2>&1 >/home/koha/koha-dev/var/log/log_bds_ean_update

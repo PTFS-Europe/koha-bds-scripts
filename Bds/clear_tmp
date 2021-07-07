@@ -1,0 +1,2 @@
+#!/bin/bash
+find /tmp -atime +2 -name "cgises*" -print | xargs /bin/rm -f

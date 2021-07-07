@@ -1,0 +1,26 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use DBI;
+use Business::ISBN;
+use C4::Context;
+
+my $select_sql =
+q{select import_record_id, isbn from import_biblios where length(isbn) = 10 and matched_biblionumber is null};
+
+my $dbh = C4::Context->dbh;
+
+my $sth = $dbh->prepare(
+    'update import_biblios set isbn = ? where import_record_id = ?');
+
+my $recs = $dbh->selectall_arrayref( $select_sql, { Slice => {} } );
+
+foreach my $row ( @{$recs} ) {
+    my $isbn = Business::ISBN->new( $row->{isbn} );
+    if ( $isbn && $isbn->is_valid ) {
+        $isbn = $isbn->as_isbn13;
+        my $isbn13 = $isbn->as_string( [] );
+
+        $sth->execute( $isbn13, $row->{import_record_id} );
+    }
+}

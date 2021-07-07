@@ -1,0 +1,31 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use File::Copy;
+use Config::General;
+
+my $conf = Config::General->new(
+            -ConfigFile => 'options.cfg',
+            -InterPolateVars => 1
+        );
+
+my %config = $conf->getall;
+
+my $program = $config{'marcprogram'};
+my $custcodeprefixlc = $config{'custcodeprefix'};
+
+# eans marcfiles are encoded in MARC-8 convert to utf_8 before load
+
+my $directory = "$config{'bds_dir'}eans";
+
+
+opendir my $dh, $directory || die "Cannot opendir $directory: $!";
+my @mfiles = grep { /^$config{'custcodeprefix'}t\d{9}\.mrc$/ } readdir($dh);
+closedir $dh;
+
+foreach my $filename (@mfiles) {
+    move( "$directory/$filename", "$directory/tmp/$filename" );
+    my $cmdline =
+"$program -f MARC-8 -t UTF-8 -l 9=97 -o marc $directory/tmp/$filename >$directory/$filename";
+    system($cmdline );
+}

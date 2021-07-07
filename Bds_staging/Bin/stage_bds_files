@@ -1,0 +1,132 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use Carp;
+use C4::Context;
+use Digest::MD5;
+use Net::FTP;
+use Config::General;
+
+my $conf = Config::General->new(
+            -ConfigFile => 'Bin/options.cfg',
+            -InterPolateVars => 1
+        );
+
+my %config = $conf->getall;
+
+# Copyright 2012,2016 PTFS Europe Ltd
+#
+# This program is free software you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You shoulf have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>
+
+download_new_files();
+
+my $dbh = C4::Context->dbh;
+my $sql = q|select distinct file_name from import_batches
+where file_name regexp "$config{'custcodeprefixsql'}[0-9][0-9][0-9][0-9].mrc$"
+and date(upload_timestamp) > DATE_ADD(CURRENT_DATE(), INTERVAL -6 MONTH)
+order by file_name|;
+
+my $loaded_files = $dbh->selectcol_arrayref($sql);
+
+my $potential_files = get_potentials();
+
+my %loaded = map { $_ => 1 } @{$loaded_files};
+
+my @files_to_load;
+
+foreach my $f ( @{$potential_files} ) {
+    if ( !exists $loaded{$f} && not_in_archive($f) ) {
+        push @files_to_load, $f;
+    }
+}
+
+my $stage_file = 'Inprocess/files_to_stage';
+open my $fh, '>', $stage_file || croak "Cannot write to $stage_file : $!";
+foreach my $f (@files_to_load) {
+    print $fh $f, "\n";
+}
+close $fh;
+
+sub get_potentials {
+    my $local_dir = 'Source';
+    opendir( my $dh, $local_dir ) || croak "can't opendir $local_dir: $!";
+    my @loc_files =
+      grep { /^$config{'custcodeprefixsql'}.*\.mrc$/ && -f "$local_dir/$_" && -M "$local_dir/$_" < 160 }
+      readdir($dh);
+    closedir $dh;
+    my @filelist = sort @loc_files;
+    return \@filelist;
+}
+
+sub download_new_files {
+    my $local_dir = 'Source';
+    opendir( my $dh, $local_dir ) || croak "can't opendir $local_dir: $!";
+    my @loc_files =
+      grep { /^$config{'custcodeprefixsql'}.*\.mrc$/ && -f "$local_dir/$_" && -M "$local_dir/$_" < 300 }
+      readdir($dh);
+    closedir $dh;
+    my %loc_fil = map { $_ => 1 } @loc_files;
+
+    my $remote   = $config{'ftpaddress'};
+    my $username = $config{'login'};
+    my $password = $config{'pass'};
+
+    my $ftp = Net::FTP->new( $remote, Debug => 0 )
+      or croak "Cannot connect to BDS: $@";
+
+    $ftp->login( $username, $password )
+      or croak 'Cannot login to BDS ', $ftp->message;
+    $ftp->binary();
+    $ftp->cwd($config{'download_isn'})
+      or croak "Cannot change working directory $ftp->message";
+    my @rem_files = $ftp->ls($config{'custcodeprefixsql'} . '*.mrc');
+    foreach my $rmfl (@rem_files) {
+
+        my $modt = $ftp->mdtm($rmfl);
+
+        if ( !exists( $loc_fil{$rmfl} ) ) {
+
+            $ftp->get( $rmfl, "Source/$rmfl" );
+            `touch --date=\@$modt Source/$rmfl`;
+        }
+    }
+    $ftp->quit;
+
+    return;
+}
+
+sub not_in_archive {
+    my $filename = shift;
+    my $archive_filename = "Archive/$filename";
+    if (-f $archive_filename) {
+       open my $fh, '<',$archive_filename or croak "Cannot open $archive_filename : $!";
+       binmode $fh;
+       my $archive_digest = Digest::MD5->new->addfile($fh)->hexdigest;
+       close $fh;
+       my $source_filename = "Source/$filename";
+       open my $fh2, '<',$source_filename or croak "Cannot open $source_filename : $!";
+       binmode $fh2;
+       my $source_digest = Digest::MD5->new->addfile($fh2)->hexdigest;
+       close $fh2;
+       # if contents do not match it is a new file
+       return $source_digest ne $archive_digest ? 1 : 0;
+    }
+    else {
+        # not present in archive
+        # ok to process
+        return 1;
+    }
+    return;
+}
+

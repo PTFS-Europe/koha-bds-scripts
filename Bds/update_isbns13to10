@@ -1,0 +1,82 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use Business::ISBN;
+use C4::Biblio qw/GetMarcBiblio ModBiblioMarc GetFrameworkCode/;
+use C4::Context;
+use MARC::Field;
+
+my $dbh = C4::Context->dbh;
+
+# read all bibs
+#
+my $biblios = $dbh->selectcol_arrayref(
+    q{SELECT biblionumber from biblioitems where itemtype != 'ERES'});
+
+foreach my $biblionumber ( @{$biblios} ) {
+    my $marc_record = GetMarcBiblio($biblionumber);
+    my %isbn10;
+    my @isbn13;
+    if ( defined $marc_record ) {
+        my $framework = GetFrameworkCode($biblionumber);
+        my @new_fields;
+
+        # get all isbns ( incl 001 )
+        my @isbn_fields = $marc_record->field('020');
+        foreach my $tag020 (@isbn_fields) {
+            my $isbn = $tag020->subfield('a');
+            if ( !$isbn ) {
+                $isbn = $tag020->subfield('z');
+            }
+
+            # is it valid
+            if ($isbn) {
+                my $iobj = Business::ISBN->new($isbn);
+                if ($iobj) {
+                    my $type = $iobj->type;
+                    if ( $type eq 'ISBN13' ) {
+                        push @isbn13, $iobj;
+                    }
+                    elsif ( $type eq 'ISBN10' ) {
+                        my $key = $iobj->isbn;
+                        $isbn10{$key} = 1;
+                    }
+                }
+            }
+        }
+
+        # foreach 13char candidate
+        foreach my $isbn13 (@isbn13) {
+            my $isbn10 = $isbn13->as_isbn10;
+            if ($isbn10) {
+                my $new10 = $isbn10->isbn;
+                if ($new10) {
+
+                    # is 10 digit version present
+                    if ( exists $isbn10{$new10} ) {
+                        next;
+                    }
+                    else {
+                        # if not add 13 digit version
+                        # add 020
+                        push @new_fields,
+                          MARC::Field->new( '020', q{ }, q{ }, a => $new10 );
+
+                        # $is_dirty = 1;
+                        $isbn10{$new10} = 1;
+                    }
+                }
+            }
+        }
+
+        if (@new_fields) {
+            print "Updating ISBN-10 on biblio:$biblionumber\n";
+            $marc_record->insert_fields_ordered(@new_fields);
+            if ( !ModBiblioMarc( $marc_record, $biblionumber, $framework ) ) {
+                print STDERR "Write failed on biblio:$biblionumber\n";
+            }
+        }
+    }
+
+    #    print "$biblionumber\n";
+}

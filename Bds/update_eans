@@ -1,0 +1,40 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use MARC::Record;
+use C4::Context;
+use feature qw( say );
+
+my $dbh = C4::Context->dbh;
+my $sql = <<'ENDSQL';
+select import_record_id from import_biblios where import_record_id not in (select import_record_id from import_eans )
+ENDSQL
+
+my $ids = $dbh->selectcol_arrayref($sql);
+
+my $insert_ean =
+  $dbh->prepare('insert into import_eans (import_record_id, ean) values (?, ?)');
+my $readmarc =
+  $dbh->prepare('select marc from import_records where import_record_id = ?');
+say "update_eans";
+REC: foreach my $recid (@{$ids}) {
+    my $marcblob      = ( $dbh->selectrow_array( $readmarc, {}, $recid ) )[0];
+    if ($marcblob) {
+    my $m             = MARC::Record->new_from_usmarc($marcblob);
+    my @tags = $m->field('024');
+    for my $t (@tags) {
+        print "RECID:$recid\n";
+        if ( $t->indicator(1) eq '3' ) {
+            my $sfd = $t->subfield('a');
+            if ($sfd && $sfd=~m/(\d{13})/) { 
+                my $ean = $1;
+                $insert_ean->execute($recid, $ean);
+                next REC;
+            }
+        }
+    }
+    }
+    else {
+       say "Skipping $recid no marcblob";
+    }
+}

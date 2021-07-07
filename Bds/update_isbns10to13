@@ -1,0 +1,98 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use Business::ISBN;
+use C4::Biblio qw/GetMarcBiblio ModBiblioMarc GetFrameworkCode/;
+use C4::Context;
+use MARC::Field;
+
+my $dbh = C4::Context->dbh;
+
+# read all bibs
+#
+my $biblios = $dbh->selectcol_arrayref('SELECT biblionumber from biblioitems where itemtype != "ERES"');
+
+foreach my $biblionumber ( @{$biblios} ) {
+    my $marc_record = GetMarcBiblio($biblionumber);
+    my %isbn13;
+    my @isbn10;
+    if ( defined $marc_record ) {
+        my $framework = GetFrameworkCode($biblionumber);
+        my @new_fields;
+
+        # get all isbns ( incl 001 )
+        my @isbn_fields = $marc_record->field('020');
+        foreach my $tag020 (@isbn_fields) {
+            my $isbn = $tag020->subfield('a');
+            if ( !$isbn ) {
+                $isbn = $tag020->subfield('z');
+            }
+
+            # is it valid
+            if ($isbn) {
+                my $iobj = Business::ISBN->new($isbn);
+                if ($iobj) {
+                    my $type = $iobj->type;
+                    if ( $type eq 'ISBN10' ) {
+                        push @isbn10, $iobj;
+                    }
+                    elsif ( $type eq 'ISBN13' ) {
+                        my $key = $iobj->isbn;
+                        $isbn13{$key} = 1;
+                    }
+                }
+            }
+        }
+
+        my @control_fields = $marc_record->field('001');
+        foreach my $tag001 (@control_fields) {
+            my $control = $tag001->data();
+            if ($control && $control=~/^\s*\d/) {
+                my $iobj = Business::ISBN->new($control);
+
+                # is it valid
+                if ($iobj) {
+                    my $type = $iobj->type;
+                    if ( $type eq 'ISBN10' ) {
+                        push @isbn10, $iobj;
+                    }
+                    elsif ( $type eq 'ISBN13' ) {
+                        my $key = $iobj->isbn;
+                        $isbn13{$key} = 1;
+                    }
+                }
+            }
+
+        }
+
+        # foreach 10char candidate
+        foreach my $isbn10 (@isbn10) {
+            my $new13 = $isbn10->as_isbn13->isbn;
+            if ($new13) {
+
+                # is 13 digit version present
+                if ( exists $isbn13{$new13} ) {
+                    next;
+                }
+                else {
+                    # if not add 13 digit version
+                    # add 020
+                    push @new_fields,
+                      MARC::Field->new( '020', q{ }, q{ }, a => $new13 );
+
+                    # $is_dirty = 1;
+                    $isbn13{$new13} = 1;
+                }
+            }
+        }
+
+        if (@new_fields) {
+            print "Updating ISBN-13 on biblio:$biblionumber\n";
+            $marc_record->insert_fields_ordered(@new_fields);
+            if ( !ModBiblioMarc( $marc_record, $biblionumber, $framework ) ) {
+                print STDERR "Write failed on biblio:$biblionumber\n";
+            }
+        }
+    }
+#    print "$biblionumber\n";
+}

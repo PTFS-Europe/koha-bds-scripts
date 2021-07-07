@@ -1,0 +1,81 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use C4::Context;
+use MARC::Record;
+use C4::Biblio qw( GetMarcBiblio GetFrameworkCode ModBiblio );
+
+my $dbh = C4::Context->dbh;
+
+# pass a file of biblionumbers
+
+while (<>) {
+    chomp;
+    if (/^(\d+)/) {
+        my $biblionumber = $1;
+        my $fw           = GetFrameworkCode($biblionumber);
+        if ( $fw eq '' ) {
+            my $m = GetMarcBiblio($biblionumber);
+            if ($m) {
+                update_biblio( $biblionumber, $m );
+            }
+        }
+    }
+}
+
+sub update_biblio {
+    my ( $biblionumber, $m ) = @_;
+    my $leader = $m->leader();
+    my $frameworkcode = get_framework( substr( $leader, 6, 2 ) );
+    if ($frameworkcode) {
+        ModBiblio( $m, $biblionumber, $frameworkcode );
+    }
+
+    return;
+}
+
+sub get_framework {
+    my $str = shift;
+
+    # ACQ           | Acquisitions   |
+    #| AR            | Models         |
+    #| BKS           | Books          |
+    #| CF            | Software       |
+    #| FA            | Fast Add       |
+    #| IR            | Binders        |
+    #| KT            | Kits           |
+    #| MAP           | Maps           |
+    #| PLY           | Plays          |
+    #| PRM           | Printed Music  |
+    #| SER           | Serials        |
+    #| SR            | Recorded music |
+    #| SW            | Spoken Word    |
+    #| VR            | DVDs           |
+    if ( $str eq 'as' ) {
+        return 'SER';
+    }
+    if ( $str =~ m/^m/ ) {
+        return 'CF';
+    }
+    elsif ( $str =~ m/^o/ ) {
+        return 'KT';
+    }
+    elsif ( $str =~ m/^e/ ) {
+        return 'MAP';
+    }
+    elsif ( $str =~ m/^d/ ) {
+        return 'PRM';
+    }
+    elsif ( $str =~ m/^j/ ) {
+        return 'SR';
+    }
+    elsif ( $str =~ m/^i/ ) {
+        return 'SW';
+    }
+    elsif ( $str =~ m/^g/ ) {
+        return 'VR';
+    }
+
+    return 'BKS';
+}
+

@@ -1,0 +1,145 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+
+use Business::ISBN;
+use MARC::Record;
+use MARC::File::USMARC;
+use C4::Context;
+use C4::Biblio qw( ModBiblio );
+use File::Copy;
+use feature qw( say );
+use Config::General;
+
+my $conf = Config::General->new(
+            -ConfigFile => 'options.cfg',
+            -InterPolateVars => 1
+        );
+
+my %config = $conf->getall;
+
+my $bds_dir = $config{'bds_dir'};
+
+my $keys = get_keys($bds_dir);
+our $dbh  = C4::Context->dbh;
+
+our $item_sth = $dbh->prepare(
+    q{update items set itemcallnumber = ? where biblionumber = ? and notforloan = -1});
+
+my @marcfiles = get_marcfiles($bds_dir);
+#my $marcfilename  = 'ch201701301.mrc';
+foreach my $marcfilename (@marcfiles) {
+
+    my $marcfile = MARC::File::USMARC->in($marcfilename);
+
+    while ( my $m = $marcfile->next() ) {
+        my $control;
+        my $control_number;
+        if ( $marcfilename =~ m/ean/ ) {
+            $control        = $m->field($config{'eancontrolmarcfield'});
+            $control_number = $control->subfield('a');
+        }
+        else {
+            $control        = $m->field($config{'isncontrolmarcfield'});
+            $control_number = $control->data();
+        }
+        print "Rec:$control_number ";
+        if ( exists $keys->{$control_number} ) {
+            say "matches biblio $keys->{$control_number}";
+            update_biblio( $keys->{$control_number}, $m );
+        }
+        else {
+            say "NO MATCH";
+        }
+    }
+
+    $marcfile->close();
+    my $received_filename = $marcfilename;
+    if ( $received_filename =~ s#(isbn|ean)s#$1s/received# ) {
+        move( $marcfilename, $received_filename );
+    }
+
+}
+
+sub update_biblio {
+    my ( $biblionumber, $m ) = @_;
+    my $recid = shift;
+
+    my $leader = $m->leader();
+    my $frameworkcode = get_framework( substr( $leader, 6, 2 ) );
+
+
+    ModBiblio( $m, $biblionumber, $frameworkcode );
+
+    my $shelfmark = $m->field('082')->subfield('a');
+    if ($shelfmark) {
+        update_shelfmark($shelfmark, $biblionumber);
+    }
+
+    #    $mark_matched->execute($biblionumber);
+    #    ++$bibs_updated;
+
+    return;
+}
+
+sub get_framework {
+    my $str = shift;
+    my @fcodes=();
+    @fcodes = split /\|/, $config{'kohaframeworkmap'};
+
+    foreach my $fcode (@fcodes) {
+	    if($fcode=~m{^$str}) {
+		    return substr($fcode,(index($fcode, ":")+1));
+	    }
+    }
+
+    return $config{'defaultframework'};
+}
+
+sub get_keys {
+
+    my $directory = shift;
+    $directory .= 'keys';
+    my $k = {};
+    opendir my $dh, $directory || die "Cannot open $directory: $!";
+    while ( readdir $dh ) {
+        if (/^\d{8}_keys/) {
+            my $filename     = "$directory/$_";
+            my $new_filename = "$directory/submitted/$_";
+            open my $fh, '<', $filename or die "Could not open $filename : $!";
+            while (<$fh>) {
+                chomp;
+                my ( $key, $biblio ) = split /\|/, $_;
+                $k->{$key} = $biblio;
+            }
+            close $fh;
+            move( $filename, $new_filename );
+        }
+    }
+    return $k;
+}
+
+sub get_marcfiles {
+    my $bds_dir = shift;
+    my @files;
+
+    for my $subdir (qw(isbns eans)) {
+        my $directory = "${bds_dir}$subdir";
+        opendir my $dh, $directory || die "Cannot open $directory: $!";
+        while ( readdir $dh ) {
+            if (/^$config{'custcodeprefix'}t?\d{9}\.mrc$/) {
+                push @files, "$bds_dir$subdir/$_";
+            }
+        }
+        closedir $dh;
+    }
+    return @files;
+}
+
+sub update_shelfmark {
+    my ($sm, $b) = @_;
+    if ($b) {
+        $item_sth->execute($sm, $b);
+    }
+    return;
+}

@@ -1,0 +1,39 @@
+#BDS options for a specific site set here and included
+############
+# Make sure all the folders being set exist
+# Working folders
+############
+home    = /home/koha/ 
+logdir =  ${home}koha-dev/var/log/ # koha logdir
+bds_dir = ${home}Custom/Bds/ # create folder if not present
+keysfolder = ${bds_dir}keys
+#isbns
+#eans
+editracefile = editrace.log
+custcodeprefix = ptfs # case sensitve prefix allocated by BDS for site. eg ptfs or ches
+eancontrolmarcfield = 024 # shouldn't need amending
+isncontrolmarcfield = 001 # may need amending but unlikely
+############
+# ftp details
+############
+ftpaddress  = ftp.bdslive.com
+ftpeanaddress  = ftp.bibdsl.co.uk
+login    = xxxx # eg ptfs
+pass     = xxxx
+#subfolder must be uppercase version of bds username for these paths:
+upload_isn  = /deposit/PTFS
+download_isn = /receive/PTFS
+upload_ean   = /deposit/PTFS/Trade
+download_ean = /receive/PTFS/Trade
+############
+# Other 
+############
+# framework code mappings. Each Koha relevant framework for the site must be mapped to LDR position 06 or 06 + 07. 
+#The following variable should be formatted as ldr values (lowercase) | Koha frameworkcode (UPPERCASE). 
+#It may help to run a mysql select frameworkcode from biblio_frameworks to get the list for this site.
+#Note that if the code is not found, the DEFAULT koha frameworkcode will be assigned which can optionally set to be empty by leaving right hand side of variable empty
+kohaframeworkmap = as:SER|m:CF|o:KT|e:MAP|d:PRM|j:SR|i:SW|g:VR
+#defaultframework = BK
+defaultframework = # for DEFAULT (empty) 
+#fix_charsets
+program = /usr/bin/yaz-marcdump # yaz executable
