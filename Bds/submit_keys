@@ -4,7 +4,7 @@ source "$(dirname "$0")/options.sh"
 cd "${HOME}${BDSDIR}"
 
 # To test this with a specific date, append yyyy/mm/dd to the get_keys_forsubmission command as a parameter.
-#perl get_keys_forsubmission 2020/09/28
+##perl get_keys_forsubmission 2021/07/30
 perl get_keys_forsubmission
 
 perl autoresponse_ftp send

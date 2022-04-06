@@ -127,7 +127,7 @@ sub get_marcfiles {
         my $directory = "${bds_dir}$subdir";
         opendir my $dh, $directory || die "Cannot open $directory: $!";
         while ( readdir $dh ) {
-            if (/^$config{'custcodeprefix'}t?\d{9}\.mrc$/) {
+            if (/^$config{'custcodeprefix'}t?\d{9}.?\.mrc$/) {
                 push @files, "$bds_dir$subdir/$_";
             }
         }

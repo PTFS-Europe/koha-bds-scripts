@@ -33,7 +33,7 @@ download_new_files();
 
 my $dbh = C4::Context->dbh;
 my $sql = q|select distinct file_name from import_batches
-where file_name regexp "$config{'custcodeprefixsql'}[0-9][0-9][0-9][0-9].mrc$"
+where file_name regexp "$config{'custcodeprefix'}[0-9][0-9][0-9][0-9].mrc$"
 and date(upload_timestamp) > DATE_ADD(CURRENT_DATE(), INTERVAL -6 MONTH)
 order by file_name|;
 
@@ -62,7 +62,7 @@ sub get_potentials {
     my $local_dir = 'Source';
     opendir( my $dh, $local_dir ) || croak "can't opendir $local_dir: $!";
     my @loc_files =
-      grep { /^$config{'custcodeprefixsql'}.*\.mrc$/ && -f "$local_dir/$_" && -M "$local_dir/$_" < 160 }
+      grep { /^$config{'custcodeprefix'}.*\.mrc$/ && -f "$local_dir/$_" && -M "$local_dir/$_" < 160 }
       readdir($dh);
     closedir $dh;
     my @filelist = sort @loc_files;
@@ -73,7 +73,7 @@ sub download_new_files {
     my $local_dir = 'Source';
     opendir( my $dh, $local_dir ) || croak "can't opendir $local_dir: $!";
     my @loc_files =
-      grep { /^$config{'custcodeprefixsql'}.*\.mrc$/ && -f "$local_dir/$_" && -M "$local_dir/$_" < 300 }
+      grep { /^$config{'custcodeprefix'}.*\.mrc$/ && -f "$local_dir/$_" && -M "$local_dir/$_" < 300 }
       readdir($dh);
     closedir $dh;
     my %loc_fil = map { $_ => 1 } @loc_files;
@@ -82,25 +82,13 @@ sub download_new_files {
     my $username = $config{'login'};
     my $password = $config{'pass'};
 
-    my $ftp = Net::FTP->new( $remote, Debug => 0 )
+    my $ftp = Net::FTP->new( $remote, Debug => 0, Passive => 1 )
       or croak "Cannot connect to BDS: $@";
 
     $ftp->login( $username, $password )
       or croak 'Cannot login to BDS ', $ftp->message;
     $ftp->binary();
-    $ftp->cwd($config{'download_isn'})
-      or croak "Cannot change working directory $ftp->message";
-    my @rem_files = $ftp->ls($config{'custcodeprefixsql'} . '*.mrc');
-    foreach my $rmfl (@rem_files) {
-
-        my $modt = $ftp->mdtm($rmfl);
-
-        if ( !exists( $loc_fil{$rmfl} ) ) {
-
-            $ftp->get( $rmfl, "Source/$rmfl" );
-            `touch --date=\@$modt Source/$rmfl`;
-        }
-    }
+    get_bds_files( $ftp, %loc_fil );
     $ftp->quit;
 
     return;
@@ -130,3 +118,26 @@ sub not_in_archive {
     return;
 }
 
+sub get_bds_files {
+
+    my ($ftp, %loc_fil) = @_;
+    my @bdsdirs;
+    @bdsdirs = split /\|/, $config{'download_isn'};
+    my @rem_files;
+    my $modt;
+    foreach my $bdsdirectory (@bdsdirs) {
+      $ftp->cwd( $bdsdirectory )
+      or croak "Cannot change working directory $ftp->message";
+    @rem_files = $ftp->ls($config{'custcodeprefix'} . '*.mrc');
+      foreach my $rmfl (@rem_files) {
+
+          $modt = $ftp->mdtm($rmfl);
+
+          if ( !exists( $loc_fil{$rmfl} ) ) {
+
+              $ftp->get( $rmfl, "Source/$rmfl" );
+              `touch --date=\@$modt Source/$rmfl`;
+          }
+      }
+    }
+}

@@ -48,7 +48,7 @@ sub submit_files {
         else {
              $ftpaddr=$config{ftpeanaddress};
         } 
-          my $ftp = Net::FTP->new( $ftpaddr, Debug => 0 )
+          my $ftp = Net::FTP->new( $ftpaddr, Debug => 0, Passive => 1 )
           or die "Cannot connect to  $ftpaddr: $@";
         
         $ftp->login( $config{login}, $config{pass} )
@@ -78,32 +78,43 @@ sub retrieve_files {
     }
     opendir my $dh,
       "$directory/received" || die "Cannot opendir $directory: $!";
-    my @already_received = grep { /^$config{'custcodeprefix'}?\d{9}\.mrc$/ } readdir($dh);
+    my @already_received = grep { /^$config{'custcodeprefix'}?\d{9}.?\.mrc$/ } readdir($dh);
     closedir $dh;
 
     #my $f = $ftp_details->{$type};
-    my $ftp = Net::FTP->new( $config{ftpaddress}, Debug => 0 )
+    my $ftp = Net::FTP->new( $config{ftpaddress}, Debug => 0, Passive => 1  )
       or die "Cannot connect to  $config{ftpaddress}: $@";
     $ftp->login( $config{login}, $config{pass} )
       or die "Cannot login: ", $ftp->message;
-    if($type eq "isbns") {
-       $ftp->cwd( $config{download_isn} )
-         or die "Cannot change working directory ", $ftp->message;
-    } else {
-       $ftp->cwd( $config{download_ean} )
-         or die "Cannot change working directory ", $ftp->message;
-    }	    
-    my @files_on_server = $ftp->ls;
-    my @download_files = grep { /$config{custcodeprefix}t?\d{9}.mrc$/ } @files_on_server;
-    foreach my $filename (@download_files) {
-
-        if ( none { /$filename/ } @already_received ) {
-            $ftp->get($filename);
-        }
-    }
+    get_bds_files( $type, $ftp, @already_received );
     $ftp->quit;
 
     return;
 
 }
+sub get_bds_files {
 
+    my ($type, $ftp, @already_received) = @_;
+    my @bdsdirs;
+    if($type eq "isbns") {
+       @bdsdirs = split /\|/, $config{'download_isn'};
+    } else {
+       @bdsdirs = split /\|/, $config{'download_ean'};
+    }	    
+    my @files_on_server;
+    my @download_files;
+    foreach my $bdsdirectory (@bdsdirs) {
+      $ftp->cwd( $bdsdirectory )
+        or die "Cannot change working directory ", $ftp->message;
+      
+      @files_on_server = $ftp->ls;
+      @download_files = grep { /$config{custcodeprefix}\d{9}.*.mrc$/ } @files_on_server;
+      foreach my $filename (@download_files) {
+
+          if ( none { /$filename/ } @already_received ) {
+              $ftp->get($filename);
+          }
+      }
+    }
+    return;
+}

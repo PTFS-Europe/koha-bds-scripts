@@ -10,7 +10,9 @@ perl Bin/stage_bds_files
 for x in `cat Inprocess/files_to_stage`
 do
   cd Source;
-  ${KOHASCRIPTSPATH}stage_file.pl --file $x --item-action ignore > ../Logs/$x.log
+  ${KOHASCRIPTSPATH}stage_file.pl --file $x --match 1 --item-action ignore > ../Logs/$x.log
+  batchnumber=`grep '^Batch' ../Logs/${x}.log | sed 's/[^0-9]//g'`
+  ${KOHASCRIPTSPATH}commit_file.pl --batch-number $batchnumber >> ../Logs/$x.log
   cp $x ../Archive/
   cd ..
 done

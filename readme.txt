@@ -2,6 +2,7 @@
 README
 *********
 BDS scripts - PTFS Europe - 20210706 
+version 2 - 20220331
 NB Default home is /home/koha unless changed in options.sh and options.cfg file 
 
 Place "Bds" and "Bds_staging" folders in /Custom folder (under $home as defined in options file - normally /home/koha)
@@ -26,4 +27,9 @@ line must be before that and the second some while after
 # Retrieve BDS bib data and stage it
 mm hh * * * cd /home/koha/Custom/Bds_staging; /home/koha/Custom/Bds_staging/Bin/stage_bds_files.sh
 
-NB/ Stage after the files have been received from the import_records cronjob.
+Changes in v2
+1. download_isn and download_ean directories become arrays pipe | separated
+2. filename masks altered to allow for alphabetic suffixes. eg xxx20220101.mrc, xxx20220101a.mrc etc.
+3. passive mode default added for ftp
+4. MATCHRULE=<number> added to options.sh to state Koha matching rule to use when staging marc records.
+5. Facility to load after staging in Koha added.

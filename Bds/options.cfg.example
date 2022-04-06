@@ -20,11 +20,18 @@ ftpaddress  = ftp.bdslive.com
 ftpeanaddress  = ftp.bibdsl.co.uk
 login    = xxxx # eg ptfs
 pass     = xxxx
-#subfolder must be uppercase version of bds username for these paths:
-upload_isn  = /deposit/PTFS
-download_isn = /receive/PTFS
-upload_ean   = /deposit/PTFS/Trade
-download_ean = /receive/PTFS/Trade
+#subfolder must be bds username for these paths:
+# upload paths
+upload_isn  = /deposit/${login}/Orders
+upload_ean   = /deposit/${login}/Trade
+# download paths
+# You can remove ones not in use. Academic library paths differ from public libraries. Comment in the ones you need for _isn and _ean
+# # academic
+download_isn = /receive/${login}/Orders/Ebook/CIP|/receive/${login}/Orders/Ebook/Full|/receive/${login}/Orders/Print/CIP|/receive/${login}/Orders/Print/Full|/receive/${login}/Upgrades/Ebook/CIP|/receive/${login}/Upgrades/Ebook/Full|/receive/${login}/Upgrades/Print/CIP|/receive/${login}/Upgrades/Print/Full
+download_ean = /receive/${login}/AV|/receive/${login}/OVDR
+# public
+#download_isn = /receive/${login}|/receive/${login}/MARC8
+#download_ean = /receive/${login}/Trade|/receive/${login}/Trade/MARC8
 ############
 # Other 
 ############
@@ -32,7 +39,8 @@ download_ean = /receive/PTFS/Trade
 #The following variable should be formatted as ldr values (lowercase) | Koha frameworkcode (UPPERCASE). 
 #It may help to run a mysql select frameworkcode from biblio_frameworks to get the list for this site.
 #Note that if the code is not found, the DEFAULT koha frameworkcode will be assigned which can optionally set to be empty by leaving right hand side of variable empty
-kohaframeworkmap = as:SER|m:CF|o:KT|e:MAP|d:PRM|j:SR|i:SW|g:VR
+#kohaframeworkmap = as:SER|m:CF|o:KT|e:MAP|d:PRM|j:SR|i:SW|g:VR
+kohaframeworkmap = # for DEFAULT (empty)
 #defaultframework = BK
 defaultframework = # for DEFAULT (empty) 
 #fix_charsets
